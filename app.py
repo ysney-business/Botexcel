@@ -3,7 +3,6 @@ import io
 import logging
 from pathlib import Path
 import openpyxl
-from openpyxl.formatting.rule import CellIsRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 import pandas as pd
@@ -161,12 +160,10 @@ class ProcesadorRemotoResiliente:
     )
     header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
     data_font = Font(name="Calibri", size=10)
+    
+    # Alineacion estrictamente CENTRADA para todas las celdas de datos y encabezados
     align_center = Alignment(
         horizontal="center", vertical="center", wrap_text=True
-    )
-    align_left = Alignment(horizontal="left", vertical="center", wrap_text=True)
-    align_right = Alignment(
-        horizontal="right", vertical="center", wrap_text=True
     )
 
     thin_border = Border(
@@ -176,6 +173,7 @@ class ProcesadorRemotoResiliente:
         bottom=Side(style="thin", color="D9D9D9"),
     )
 
+    # Formatear encabezados centrados
     for col_num in range(1, ws.max_column + 1):
       cell = ws.cell(row=1, column=col_num)
       cell.fill = header_fill
@@ -183,18 +181,15 @@ class ProcesadorRemotoResiliente:
       cell.alignment = align_center
       cell.border = thin_border
 
+    # Formatear todas las celdas de datos con centrado uniforme (incluyendo las celdas en blanco)
     for row in range(2, ws.max_row + 1):
       for col in range(1, ws.max_column + 1):
         cell = ws.cell(row=row, column=col)
         cell.font = data_font
         cell.border = thin_border
+        cell.alignment = align_center
 
-        val = str(cell.value)
-        if val.replace(".", "", 1).isdigit() or "-" in val and len(val) < 15:
-          cell.alignment = align_right
-        else:
-          cell.alignment = align_left
-
+    # Ajuste automatico del ancho de columnas para expansion correcta
     for col in ws.columns:
       max_length = 0
       column_letter = get_column_letter(col[0].column)
@@ -204,26 +199,8 @@ class ProcesadorRemotoResiliente:
             max_length = max(max_length, len(str(cell.value)))
         except:
           pass
-      adjusted_width = max(max_length + 4, 12)
+      adjusted_width = max(max_length + 4, 14)
       ws.column_dimensions[column_letter].width = adjusted_width
-
-    green_fill = PatternFill(
-        start_color="C6EFCE", end_color="C6EFCE", fill_type="solid"
-    )
-    green_font = Font(color="006100")
-
-    for col in range(1, ws.max_column + 1):
-      col_letter = get_column_letter(col)
-      ws.conditional_formatting.add(
-          f"{col_letter}2:{col_letter}{ws.max_row}",
-          CellIsRule(
-              operator="greaterThan",
-              formula=["0"],
-              stopIfTrue=False,
-              fill=green_fill,
-              font=green_font,
-          ),
-      )
 
     final_output = io.BytesIO()
     wb.save(final_output)
@@ -234,8 +211,8 @@ class ProcesadorRemotoResiliente:
 st.title("Bot Excel - Procesador Remoto Multifacetico")
 st.markdown(
     "Sube cualquier archivo de trabajo (CSV, Excel, TXT, Log). El sistema"
-    " aplicara limpieza quirurgica, calculos financieros, tasas de cambio,"
-    " estadisticas y formato de bolsa de valores."
+    " aplicara limpieza quirurgica, calculos financieros y centrado"
+    " estructurado de datos."
 )
 
 archivo_subido = st.file_uploader(
@@ -247,27 +224,25 @@ if archivo_subido is not None:
   ruta_archivo = Path(archivo_subido.name)
   st.info(f"Archivo detectado: {ruta_archivo.name}")
 
-  if st.button("Procesar, Sanitizar y Dar Formato Avanzado", type="primary"):
+  if st.button("Procesar, Sanitizar y Centrar Formato", type="primary"):
     try:
       with st.spinner(
-          "Ejecutando analisis quirurgico, calculos y renderizado de"
-          " estadisticas..."
+          "Ejecutando analisis quirurgico y centrado de celdas..."
       ):
         procesador = ProcesadorRemotoResiliente(ruta_archivo)
         procesador.sanitizar_datos(archivo_subido)
         excel_bytes = procesador.exportar_a_bytes()
 
       st.success(
-          "Archivo procesado, calculado y estructurado con exito bajo"
-          " estandares profesionales."
+          "Archivo procesado, limpiado y estructurado con exito."
       )
 
       st.dataframe(procesador.df_procesado.head(10))
 
-      nombre_salida = f"limpio_certificado_{ruta_archivo.stem}.xlsx"
+      nombre_salida = f"limpio_centrado_{ruta_archivo.stem}.xlsx"
 
       st.download_button(
-          label="Descargar Excel Estructurado y Certificado",
+          label="Descargar Excel Estructurado y Centrado",
           data=excel_bytes,
           file_name=nombre_salida,
           mime=(
