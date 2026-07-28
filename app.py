@@ -1,137 +1,106 @@
-from datetime import datetime
-from io import BytesIO
+import io
+import logging
+from pathlib import Path
 import pandas as pd
-from openpyxl import load_workbook
 import streamlit as st
 
-# ==========================================
-# CONFIGURACIÓN DE SEGURIDAD Y LICENCIAMIENTO
-# ==========================================
-# Definición de parámetros de control de acceso (Llave y Tiempo Limitado)
-LICENCIA_ACTIVA = True
-CLAVE_ACCESSO_MAESTRA = "BOTEXCEL-2026-KEY"
-FECHA_EXPIRACION = datetime.strptime("2026-12-31", "%Y-%m-%d")
-
-# ==========================================
-# INTERFAZ VISUAL (STREAMLIT)
-# ==========================================
 st.set_page_config(
-    page_title="BOTEXCEL - Automatización Segura",
-    page_icon="\U0001F916",
-    layout="centered",
+    page_title="Procesador Remoto Resiliente",
+    layout="centered"
 )
 
-st.title("\U0001F916 BOTEXCEL - Sistema de Automatización")
-st.write(
-    "Plataforma protegida para la gestión, limpieza y cálculo automatizado de"
-    " hojas de cálculo."
+# Configuración de logs optimizada para Streamlit Cloud (salida por consola)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-# Panel lateral para control de licencias y llaves
-st.sidebar.header("\U0001F510 Control de Licenciamiento")
-modo_prueba = st.sidebar.checkbox("Activar validación por llave", value=True)
+class ProcesadorRemotoResiliente:
+    def __init__(self, archivo_entrada: Path, dataframe_en_memoria=None) -> None:
+        self.archivo_entrada = archivo_entrada
+        self.df_procesado = dataframe_en_memoria
 
-acceso_concedido = True
+    def _detectar_y_leer(self, uploaded_file) -> pd.DataFrame:
+        extension = self.archivo_entrada.suffix.lower()
+        
+        # Creamos un stream seguro en memoria para evitar problemas de punteros en Streamlit
+        bytes_data = uploaded_file.getvalue()
+        
+        try:
+            if extension in ['.xls', '.xlsx']:
+                return pd.read_excel(io.BytesIO(bytes_data), dtype=str, engine='openpyxl')
+            
+            elif extension == '.csv':
+                try:
+                    return pd.read_csv(io.BytesIO(bytes_data), dtype=str, encoding='utf-8')
+                except UnicodeDecodeError:
+                    logging.warning("Fallo UTF-8 en CSV. Reintentando con codificación latin-1.")
+                    return pd.read_csv(io.BytesIO(bytes_data), dtype=str, encoding='latin-1')
+            
+            elif extension in ['.txt', '.log']:
+                try:
+                    return pd.read_csv(io.BytesIO(bytes_data), sep=None, engine='python', dtype=str)
+                except Exception as e:
+                    raise ValueError(f"No se pudo estructurar el archivo de texto plano: {e}") from e
+            
+            else:
+                raise ValueError(f"Extensión no soportada: {extension}")
+                
+        except Exception as e:
+            logging.error(f"Error crítico al leer el archivo {self.archivo_entrada.name}: {e}")
+            raise
 
-if modo_prueba:
-  clave_ingresada = st.sidebar.text_input(
-      "Ingrese su llave de acceso:", type="password"
-  )
-  if clave_ingresada != CLAVE_ACCESSO_MAESTRA:
-    acceso_concedido = False
-    if clave_ingresada != "":
-      st.sidebar.error("Llave de acceso incorrecta.")
-    else:
-      st.sidebar.warning("Por favor, ingrese su llave para operar el bot.")
+    def sanitizar_datos(self, uploaded_file) -> None:
+        df = self._detectar_y_leer(uploaded_file)
+        
+        df = df.fillna("")
+        df.columns = df.columns.astype(str).str.strip()
+        
+        for col in df.select_dtypes(include=['object']).columns:
+            df[col] = df[col].astype(str).str.strip()
+            
+        self.df_procesado = df
+        logging.info(f"Archivo {self.archivo_entrada.name} sanitizado exitosamente.")
 
-# Verificación de tiempo limitado (Fecha de expiración)
-if datetime.now() > FECHA_EXPIRACION:
-  acceso_concedido = False
-  st.error(
-      "\u26A0\uFE0F La licencia temporal de este software ha expirado."
-      " Contacte al administrador."
-  )
+    def exportar_a_bytes(self) -> bytes:
+        if self.df_procesado is None or self.df_procesado.empty:
+            raise ValueError("El DataFrame está vacío o no ha sido procesado.")
 
-# ==========================================
-# NÚCLEO DE LA APLICACIÓN
-# ==========================================
-if acceso_concedido and LICENCIA_ACTIVA:
-  st.success(
-      "\u2705 Sistema desbloqueado y operativo. Autoría y propiedad"
-      " intelectual protegidas."
-  )
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            self.df_procesado.to_excel(writer, index=False)
+        output.seek(0)
+        return output.getvalue()
 
-  archivo_subido = st.file_uploader(
-      "Seleccione o arrastre su archivo de Excel", type=["xlsx", "xls"]
-  )
+st.title("Procesador Remoto Multifacético")
+st.markdown("Sube cualquier archivo de trabajo recibido (CSV, Excel, TXT, Log), el sistema lo depurará con precisión y entregará un Excel limpio.")
 
-  if archivo_subido is not None:
-    try:
-      # Lectura segura del archivo en memoria
-      df = pd.read_excel(archivo_subido)
+archivo_subido = st.file_uploader("Selecciona o arrastra tu archivo de entrada", type=['csv', 'xlsx', 'xls', 'txt', 'log'])
 
-      st.write("### \U0001F4CA Vista previa de los datos originales:")
-      st.dataframe(df.head())
-
-      if st.button("Ejecutar Automatización Completa"):
-        # Procesamiento Lógico (Relleno rápido, autosuma, filtros)
-
-        # 1. Limpieza y normalización de textos en columnas de texto si existen
-        for col in df.select_dtypes(include=["object"]).columns:
-          df[col] = df[col].astype(str).str.strip().str.title()
-
-        # 2. Extracción condicional del primer nombre si existe la columna Cliente
-        if "Cliente" in df.columns:
-          df["Nombre_Procesado"] = (
-              df["Cliente"].astype(str).str.strip().str.split().str[0]
-          )
-
-        # 3. Cálculo de métricas y autosuma si existe la columna Venta o similares
-        columnas_numericas = [
-            c for c in df.select_dtypes(include=["number"]).columns
-        ]
-
-        if "Venta" in df.columns:
-          total_ventas = df["Venta"].sum()
-          st.info(
-              "\U0001F4C8 La autosuma total calculada por el bot (Venta):"
-              f" {total_ventas:,.2f}"
-          )
-        elif len(columnas_numericas) > 0:
-          col_principal = columnas_numericas[0]
-          total_columna = df[col_principal].sum()
-          st.info(
-              f"\U0001F4C8 La autosuma total calculada por el bot"
-              f" ({col_principal}): {total_columna:,.2f}"
-          )
-
-        # 4. Filtrado estricto para evitar filas completamente nulas o vacías
-        df_filtrado = df.dropna(how="all")
-
-        # 5. Generación de archivo de salida en memoria con openpyxl
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
-          df_filtrado.to_excel(
-              writer, sheet_name="Reporte_Automatizado", index=False
-          )
-        processed_data = output.getvalue()
-
-        st.success(
-            "\U0001F389 ¡Proceso completado con éxito y de forma privada!"
-        )
-
-        # Botón de descarga del archivo procesado
-        st.download_button(
-            label="\U0001F4E5 Descargar Excel Automatizado",
-            data=processed_data,
-            file_name="reporte_final_automatizado.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
-
-    except Exception as e:
-      st.error(f"\u274C Error crítico en el procesamiento del archivo: {e}")
-else:
-  st.warning(
-      "\U0001F512 Acceso restringido. Introduzca la llave de seguridad válida"
-      " en el panel lateral para continuar."
-  )
+if archivo_subido is not None:
+    ruta_archivo = Path(archivo_subido.name)
+    st.info(f"Archivo detectado: {ruta_archivo.name}")
+    
+    if st.button("Procesar y Sanitizar Datos", type="primary"):
+        try:
+            with st.spinner("Ejecutando análisis quirúrgico y normalización de datos..."):
+                procesador = ProcesadorRemotoResiliente(ruta_archivo)
+                procesador.sanitizar_datos(archivo_subido)
+                excel_bytes = procesador.exportar_a_bytes()
+            
+            st.success("Archivo procesado con éxito.")
+            
+            # Muestra opcional de vista previa de los datos en pantalla
+            st.dataframe(procesador.df_procesado.head(10))
+            
+            nombre_salida = f"limpio_{ruta_archivo.stem}.xlsx"
+            
+            st.download_button(
+                label="Descargar Excel Normalizado",
+                data=excel_bytes,
+                file_name=nombre_salida,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+            
+        except Exception as error:
+            st.error(f"Ocurrió una incidencia controlada: {error}")
